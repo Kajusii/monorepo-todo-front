@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "build": "nx build todo-service",
-    "start": "node dist/apps/todo/todo-service/src/server.ts"
+    "build": "bunx nx build todo-service",
+    "start": "node dist/server.js"
   },
   "private": true,
   "dependencies": {
