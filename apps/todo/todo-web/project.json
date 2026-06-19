@@ -1,0 +1,22 @@
+{
+  "name": "todo-web",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/todo/todo-web",
+  "projectType": "application",
+  "targets": {
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx next dev",
+        "cwd": "apps/todo/todo-web"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun next build",
+        "cwd": "apps/todo/todo-web"
+      }
+    }
+  }
+}
