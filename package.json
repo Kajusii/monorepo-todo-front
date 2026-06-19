@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "build": "bunx nx build todo-service",
-    "start": "node dist/server.js"
+    "start": "node apps/todo/todo-service/dist/server.js"
   },
   "private": true,
   "dependencies": {
