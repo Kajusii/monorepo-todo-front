@@ -1,8 +1,6 @@
 'use client';
 
-import { useQuery } from '@apollo/client/react';
 import { Button, Input } from '@todo-monorepo/shadcn';
-import gql from 'graphql-tag';
 import { useParams } from 'next/navigation';
 import * as React from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,13 +10,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { Quest } from '../components/Quest';
 import { useCreateTodo } from '../hooks/useCreateTodo';
-import { useUpdateTodo } from '../hooks/useUpdateTodo';
 import { Header } from '../components/Headers';
 import { useDeleteTodo } from '../hooks/useDeleteTodo';
-import { useUpdateUser } from '../hooks/useUpdateUser';
 import { useCompletedTodo } from '../hooks/useCompletedTodo';
 import { useUncompletedTodo } from '../hooks/useUncompletedTodo';
-import { TypedDocumentNode } from '@apollo/client';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 
 // --- Leveling Logic Utilities ---
 export const xpForLevel = (level: number): number => {
@@ -63,19 +60,19 @@ const formSchema = z.object({
     .refine((val) => Number(val) <= 1000, 'Maximum XP is 1000.'),
 });
 
-type FormtType = z.infer<typeof formSchema>;
+type FormType = z.infer<typeof formSchema>;
 
-// --- Fixed GraphQL Types ---
+// --- GraphQL Types & Documents ---
 type Todo = {
   id: string;
   title: string;
   description: string;
   xpReward: number;
-  isCompleted: boolean; // Added missing isCompleted property
+  isCompleted: boolean;
 };
 
 type GetTodoByUserIdType = {
-  getTodoByUserId: Todo[]; // Changed from Todo to Todo[]
+  getTodoByUserId: Todo[];
 };
 
 type GetTodoByUserIdVariable = {
@@ -127,22 +124,30 @@ const GET_USER: TypedDocumentNode<
 `;
 // ----------------------------
 
+// --- Animation Variants ---
 const containerVariants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.05 },
+    transition: { staggerChildren: 0.15, delayChildren: 0.2 },
   },
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
+  hidden: { opacity: 0, y: 50, scale: 0.8, rotateX: -15 },
   show: {
     opacity: 1,
     y: 0,
-    transition: { type: 'spring', stiffness: 300, damping: 24 },
+    scale: 1,
+    rotateX: 0,
+    transition: { type: 'spring', stiffness: 200, damping: 15, mass: 1.2 },
   },
-  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.15 } },
+  exit: {
+    opacity: 0,
+    scale: 0.5,
+    y: -30,
+    transition: { duration: 0.25, ease: 'backIn' },
+  },
 };
 
 const Page = () => {
@@ -150,13 +155,11 @@ const Page = () => {
   const userId = params?.userId as string;
 
   const { createTodo, mutationLoading } = useCreateTodo();
-  const { updateTodo } = useUpdateTodo();
-  const { updateUser } = useUpdateUser();
   const { deleteTodo } = useDeleteTodo();
   const { completedTodo } = useCompletedTodo();
   const { unCompletedTodo } = useUncompletedTodo();
 
-  const form = useForm<FormtType>({
+  const form = useForm<FormType>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: '',
@@ -169,14 +172,17 @@ const Page = () => {
     data,
     loading: queryLoading,
     error,
-  } = useQuery(GET_TODOS, { variables: { userId }, skip: !userId });
-
-  const { data: userData, loading: userloading } = useQuery(GET_USER, {
+  } = useQuery(GET_TODOS, {
     variables: { userId },
     skip: !userId,
   });
 
-  const onSubmit = async (values: FormtType) => {
+  const { data: userData, loading: userLoading } = useQuery(GET_USER, {
+    variables: { userId },
+    skip: !userId,
+  });
+
+  const onSubmit = async (values: FormType) => {
     try {
       await createTodo({
         variables: {
@@ -196,40 +202,36 @@ const Page = () => {
   };
 
   const onDelete = async (todoId: string) => {
-    await deleteTodo({
-      variables: {
-        input: {
-          todoId,
-          userId,
-        },
-      },
-      refetchQueries: [
-        { query: GET_TODOS, variables: { userId } },
-        { query: GET_USER, variables: { userId } },
-      ],
-    });
+    try {
+      await deleteTodo({
+        variables: { input: { todoId, userId } },
+        refetchQueries: [
+          { query: GET_TODOS, variables: { userId } },
+          { query: GET_USER, variables: { userId } },
+        ],
+      });
+    } catch (err) {
+      console.error('Error deleting todo:', err);
+    }
   };
 
-  const handleCheckBox = async (todoId: string, checked: boolean) => {
+  const handleCheckBox = async (
+    todoId: string,
+    checked: boolean,
+    _xpReward?: number | string,
+  ) => {
     try {
-      if (checked === true) {
+      if (checked) {
         await completedTodo({
-          variables: {
-            todoId: todoId,
-            userId,
-          },
+          variables: { todoId, userId },
           refetchQueries: [
             { query: GET_TODOS, variables: { userId } },
             { query: GET_USER, variables: { userId } },
           ],
         });
-      }
-      if (checked === false) {
+      } else {
         await unCompletedTodo({
-          variables: {
-            todoId: todoId,
-            userId,
-          },
+          variables: { todoId, userId },
           refetchQueries: [
             { query: GET_TODOS, variables: { userId } },
             { query: GET_USER, variables: { userId } },
@@ -241,229 +243,326 @@ const Page = () => {
     }
   };
 
-  // Safe loading state for user query
-  if (userloading) {
+  if (userLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-          className="w-6 h-6 border-2 border-neutral-900 border-t-transparent rounded-full"
+          animate={{
+            scale: [1, 1.5, 1],
+            rotate: [0, 180, 360],
+            borderRadius: ['20%', '50%', '20%'],
+          }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+          className="w-16 h-16 border-4 border-transparent border-t-fuchsia-500 border-b-cyan-500"
         />
       </div>
     );
   }
 
-  // Early return guards against undefined user profile data, fixing Header/XP TS errors
   if (!userData?.getUserByUserId) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50 text-neutral-500 text-sm">
-        User profile could not be loaded.
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-cyan-400 font-bold text-xl drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
+        DATA STREAM OFFLINE
       </div>
     );
   }
 
-  // TypeScript now strictly knows 'user' is fully defined
   const user = userData.getUserByUserId;
-  const totalUserXp = user.xp;
-
   const {
     level,
     current: currentXp,
     needed: neededXp,
-  } = xpWithinLevel(totalUserXp);
+  } = xpWithinLevel(user.xp);
   const progressPercentage = neededXp > 0 ? (currentXp / neededXp) * 100 : 0;
+
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 p-6 md:p-12 lg:p-16 max-w-6xl mx-auto space-y-10">
-      {/* 1. Header & Progression Section */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="space-y-6"
-      >
-        <Header userData={user} />
+    <div className="min-h-screen bg-slate-950 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900 via-slate-950 to-fuchsia-950 text-slate-100 p-6 md:p-12 lg:p-16 overflow-hidden relative">
+      {/* Decorative ambient background blur orbs */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-fuchsia-600/20 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-cyan-600/20 rounded-full blur-[120px] pointer-events-none" />
 
-        {/* Animated XP Progress Bar */}
-        <div className="bg-white border border-neutral-200 p-5 rounded-xl shadow-sm">
-          <div className="flex justify-between items-end mb-3">
-            <div>
-              <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide">
-                Level {level}
-              </h3>
-              <p className="text-xs text-neutral-500 mt-0.5">
-                Complete objectives to gain XP and rank up.
-              </p>
+      <div className="max-w-6xl mx-auto space-y-12 relative z-10">
+        {/* 1. Header & Progression Section */}
+        <motion.div
+          initial={{ opacity: 0, y: -100, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', bounce: 0.4, duration: 1.2 }}
+          className="space-y-8"
+        >
+          <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+            <Header userData={user} />
+          </div>
+
+          {/* Epic XP Progress HUD */}
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-fuchsia-500/10 to-cyan-500/10 opacity-50" />
+
+            <div className="flex justify-between items-end mb-6 relative z-10">
+              <div>
+                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-fuchsia-400 tracking-tighter uppercase drop-shadow-sm">
+                  Level {level}
+                </h3>
+                <p className="text-sm text-slate-400 font-medium mt-1">
+                  Secure targets to accelerate progression.
+                </p>
+              </div>
+              <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.5, type: 'spring' }}
+                className="text-sm font-bold text-white bg-white/10 px-4 py-2 rounded-xl border border-white/20 backdrop-blur-md shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+              >
+                {currentXp} / {neededXp} XP
+              </motion.span>
             </div>
-            <span className="text-xs font-semibold text-neutral-700 bg-neutral-100 px-3 py-1 rounded-md border border-neutral-200">
-              {currentXp} / {neededXp} XP
-            </span>
-          </div>
-          <div className="w-full bg-neutral-100 rounded-full h-3 overflow-hidden border border-neutral-200 shadow-inner">
-            <motion.div
-              className="bg-neutral-900 h-full rounded-full relative"
-              initial={{ width: 0 }}
-              animate={{ width: `${progressPercentage}%` }}
-              transition={{ duration: 1.2, type: 'spring', bounce: 0.2 }}
-            />
-          </div>
-        </div>
-      </motion.div>
 
-      {/* 2. Content Grid Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-        {/* Left Column: Active Objectives Feed */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold tracking-tight">
-              Active Objectives
-            </h2>
-            <span className="text-xs font-medium text-neutral-600 bg-neutral-200/60 px-2.5 py-1 rounded-md">
-              Count: {data?.getTodoByUserId?.length || 0}
-            </span>
-          </div>
-
-          {error && (
-            <div className="bg-red-50 text-red-600 p-3.5 rounded-xl text-sm border border-red-200">
-              Failed to load records.
+            <div className="w-full bg-slate-900/50 rounded-full h-4 overflow-hidden border border-white/10 relative z-10 shadow-inner">
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-fuchsia-500 relative"
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercentage}%` }}
+                transition={{ duration: 2, type: 'spring', bounce: 0.1 }}
+              >
+                <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.4)_50%,transparent_100%)] animate-[shimmer_2s_infinite]" />
+                <div className="absolute right-0 top-0 bottom-0 w-4 bg-white/50 blur-sm rounded-full" />
+              </motion.div>
             </div>
-          )}
+          </motion.div>
+        </motion.div>
 
-          <div className="max-h-[520px] overflow-y-auto pr-1">
-            {/* Added proper UI loading skeletons for the query */}
-            {queryLoading && (
-              <div className="space-y-3">
-                {[...Array(3)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-20 bg-neutral-200/40 rounded-xl animate-pulse border border-neutral-200/20"
-                  />
-                ))}
+        {/* 2. Content Grid Split */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+          {/* Left Column: Active Objectives Feed */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h2 className="text-2xl font-bold tracking-tight text-white drop-shadow-md">
+                Active Queue
+              </h2>
+              <span className="text-sm font-bold text-cyan-300 bg-cyan-500/20 border border-cyan-500/30 px-4 py-1.5 rounded-full shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                {data?.getTodoByUserId?.length || 0} Targets
+              </span>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/20 backdrop-blur-md text-red-200 p-4 rounded-2xl border border-red-500/50">
+                Critical error locating data vectors.
               </div>
             )}
 
-            {!queryLoading && data?.getTodoByUserId?.length === 0 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="border border-dashed border-neutral-200 rounded-xl p-12 text-center text-neutral-400 text-sm"
-              >
-                No active targets allocated to this environment.
-              </motion.div>
-            )}
+            <div className="space-y-5">
+              {queryLoading && (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => (
+                    <motion.div
+                      key={`skeleton-${i}`}
+                      initial={{ opacity: 0, x: -50 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.15 }}
+                      className="h-28 bg-white/5 backdrop-blur-md rounded-3xl border border-white/10 relative overflow-hidden"
+                    >
+                      <motion.div
+                        className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                        animate={{ x: ['100%', '-100%'] }}
+                        transition={{
+                          repeat: Infinity,
+                          duration: 1.2,
+                          ease: 'linear',
+                        }}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
 
+              {!queryLoading && data?.getTodoByUserId?.length === 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', bounce: 0.5 }}
+                  className="flex flex-col items-center justify-center py-20 px-6 bg-white/5 backdrop-blur-xl border border-dashed border-white/20 rounded-[2.5rem]"
+                >
+                  <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-fuchsia-500 rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(217,70,239,0.4)] rotate-12">
+                    <svg
+                      className="w-8 h-8 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2.5}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">
+                    Sector Clear
+                  </h3>
+                  <p className="text-slate-400 font-medium text-center">
+                    No active targets detected. Initialize a new sequence below.
+                  </p>
+                </motion.div>
+              )}
+
+              <motion.div
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="space-y-5"
+              >
+                <AnimatePresence mode="popLayout">
+                  {data?.getTodoByUserId?.map((todo: Todo) => (
+                    <motion.div
+                      key={todo.id}
+                      layout="position"
+                      whileHover={{ scale: 1.03, y: -4 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="group"
+                    >
+                      <div className="bg-slate-900/40 backdrop-blur-lg border border-white/10 hover:border-fuchsia-500/50 transition-colors duration-300 rounded-3xl shadow-lg hover:shadow-[0_0_30px_rgba(217,70,239,0.15)]">
+                        <Quest
+                          {...todo}
+                          onToggle={handleCheckBox}
+                          onDelete={onDelete}
+                        />
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            </div>
+          </div>
+
+          {/* Right Column: Creation Form */}
+          <div className="lg:col-span-5 lg:sticky lg:top-12">
             <motion.div
-              variants={containerVariants}
-              initial="hidden"
-              animate="show"
-              className="space-y-3"
+              initial={{ opacity: 0, x: 100, rotateY: 30 }}
+              animate={{ opacity: 1, x: 0, rotateY: 0 }}
+              transition={{ type: 'spring', stiffness: 150, damping: 20 }}
+              className="bg-white/10 backdrop-blur-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[2.5rem] p-8 space-y-8 relative overflow-hidden"
             >
-              <AnimatePresence mode="popLayout">
-                {/* Replaced 'any' with explicit 'Todo' type */}
-                {data?.getTodoByUserId?.map((todo: Todo) => (
-                  <motion.div key={todo.id} exit="exit" layout>
-                    <Quest
-                      {...todo}
-                      onToggle={handleCheckBox}
-                      onDelete={onDelete}
-                    />
+              {/* Neon border glow accent */}
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-400 via-indigo-500 to-fuchsia-500" />
+
+              <div>
+                <h2 className="text-2xl font-bold text-white drop-shadow-md">
+                  Establish Target
+                </h2>
+                <p className="text-slate-400 font-medium mt-1">
+                  Inject a new objective into the mainframe.
+                </p>
+              </div>
+
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-6"
+              >
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-cyan-300 tracking-widest uppercase">
+                    Designation
+                  </label>
+                  <Input
+                    {...form.register('title')}
+                    placeholder="e.g., Optimize routing protocols"
+                    className="bg-slate-900/50 border-white/10 text-white rounded-2xl text-base h-14 px-4 transition-all focus:bg-slate-900/80 focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent placeholder:text-slate-500 shadow-inner"
+                  />
+                  {form.formState.errors.title && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-sm text-red-400 font-bold"
+                    >
+                      {form.formState.errors.title.message}
+                    </motion.p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-cyan-300 tracking-widest uppercase">
+                    Parameters
+                  </label>
+                  <textarea
+                    {...form.register('description')}
+                    placeholder="Define execution parameters..."
+                    rows={4}
+                    className="w-full p-4 bg-slate-900/50 border border-white/10 rounded-2xl text-base text-white focus:outline-none focus:bg-slate-900/80 focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent transition-all resize-none placeholder:text-slate-500 shadow-inner"
+                  />
+                  {form.formState.errors.description && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-sm text-red-400 font-bold"
+                    >
+                      {form.formState.errors.description.message}
+                    </motion.p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-fuchsia-300 tracking-widest uppercase">
+                    Yield (XP)
+                  </label>
+                  <Input
+                    {...form.register('xpReward')}
+                    type="number"
+                    placeholder="250"
+                    className="bg-slate-900/50 border-white/10 text-fuchsia-300 font-bold rounded-2xl text-base h-14 px-4 transition-all focus:bg-slate-900/80 focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent placeholder:text-slate-600 shadow-inner"
+                  />
+                  {form.formState.errors.xpReward && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-sm text-red-400 font-bold"
+                    >
+                      {form.formState.errors.xpReward.message}
+                    </motion.p>
+                  )}
+                </div>
+
+                <div className="pt-6 flex gap-4">
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-2xl h-14 px-6 text-base font-bold bg-transparent border-white/20 text-slate-300 hover:bg-white/10 hover:text-white transition-all"
+                      onClick={() => form.reset()}
+                    >
+                      Clear
+                    </Button>
                   </motion.div>
-                ))}
-              </AnimatePresence>
+
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex-1"
+                  >
+                    <Button
+                      type="submit"
+                      className="w-full rounded-2xl h-14 bg-gradient-to-r from-cyan-500 to-fuchsia-500 text-white text-base font-bold shadow-[0_0_20px_rgba(217,70,239,0.3)] hover:shadow-[0_0_30px_rgba(217,70,239,0.6)] border-0 transition-all disabled:opacity-50"
+                      disabled={mutationLoading}
+                    >
+                      {mutationLoading ? (
+                        <span className="flex items-center justify-center gap-3">
+                          <div className="w-5 h-5 border-[3px] border-white/30 border-t-white rounded-full animate-spin" />
+                          Transmitting...
+                        </span>
+                      ) : (
+                        'Execute Deployment'
+                      )}
+                    </Button>
+                  </motion.div>
+                </div>
+              </form>
             </motion.div>
           </div>
         </div>
-
-        {/* Right Column: Creation Card */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 25 }}
-          className="lg:col-span-5 bg-white border border-neutral-200 shadow-sm rounded-xl p-5 space-y-4"
-        >
-          <div>
-            <h2 className="text-lg font-semibold text-neutral-900">
-              Create Todo
-            </h2>
-            <p className="text-xs text-neutral-500 mt-0.5">
-              Assign an objective to this workspace.
-            </p>
-          </div>
-
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="text-xs font-medium text-neutral-600 block mb-1">
-                Task Name
-              </label>
-              <Input
-                {...form.register('title')}
-                placeholder="e.g., Deploy production build"
-                className="bg-white border-neutral-200 text-neutral-950 rounded-xl text-sm transition-all focus:border-neutral-400"
-              />
-              {form.formState.errors.title && (
-                <p className="text-xs text-red-500 mt-1">
-                  {form.formState.errors.title.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-neutral-600 block mb-1">
-                Description
-              </label>
-              <textarea
-                {...form.register('description')}
-                placeholder="Provide layout notes..."
-                rows={3}
-                className="w-full p-2.5 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:border-neutral-400 transition-all resize-none"
-              />
-              {form.formState.errors.description && (
-                <p className="text-xs text-red-500 mt-1">
-                  {form.formState.errors.description.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-neutral-600 block mb-1">
-                XP Reward
-              </label>
-              <Input
-                {...form.register('xpReward')}
-                type="number"
-                placeholder="e.g., 250"
-                className="bg-white border-neutral-200 text-neutral-950 rounded-xl text-sm transition-all focus:border-neutral-400"
-              />
-              {form.formState.errors.xpReward && (
-                <p className="text-xs text-red-500 mt-1">
-                  {form.formState.errors.xpReward.message}
-                </p>
-              )}
-            </div>
-
-            <div className="pt-2 border-t border-neutral-100 flex gap-2 justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl text-sm transition-transform active:scale-95"
-                onClick={() => form.reset()}
-              >
-                Reset
-              </Button>
-              <motion.div
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
-              >
-                <Button
-                  type="submit"
-                  className="rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 text-sm w-full px-5"
-                  disabled={mutationLoading}
-                >
-                  {mutationLoading ? 'Saving...' : 'Submit'}
-                </Button>
-              </motion.div>
-            </div>
-          </form>
-        </motion.div>
       </div>
     </div>
   );
