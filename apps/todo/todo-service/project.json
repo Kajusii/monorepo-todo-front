@@ -14,7 +14,7 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bunx esbuild src/server.ts --bundle --platform=node --outfile=dist/server.js --tsconfig=tsconfig.json",
+        "command": "bunx esbuild src/server.ts --bundle --platform=node --packages=external --outfile=dist/server.js --tsconfig=tsconfig.json",
         "cwd": "apps/todo/todo-service"
       }
     }
