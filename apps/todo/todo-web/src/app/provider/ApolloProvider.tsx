@@ -5,7 +5,9 @@ import { ApolloProvider as Provider } from '@apollo/client/react';
 import React from 'react';
 
 const client = new ApolloClient({
-  link: new HttpLink({ uri: process.env.todobackend }),
+  link: new HttpLink({
+    uri: process.env.TODO_BACKEND || 'http://localhost:4001',
+  }),
   cache: new InMemoryCache(),
 });
 
